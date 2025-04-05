@@ -1,15 +1,25 @@
 [package]
-name = "gaaius-core"
-version = "0.1.0"
+name = "gaaius_core"
+version = "0.4.0"
 edition = "2021"
-description = "Core node of the GAAIUS MEGACHAIN Blockchain"
-authors = ["The GAAIUS Team"]
-license = "MIT"
+authors = ["Your Name <your@email.com>"]
+description = "GAAIUS CORE V4 - Ultra-fast Proof of Stake blockchain core with WASM VM, advanced networking, rewards, fees, and validator logic."
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
-serde_json = "1.0"
-warp = "0.3"
+serde_json = "1"
+bincode = "1.3"
+sha2 = "0.10"
+ed25519-dalek = "1.0"
+rand = "0.8"
+hex = "0.4"
+blake3 = "1.5"
+wasmtime = "13.0"        # For WASM smart contracts
+libp2p = { version = "0.51", features = ["tcp", "dns", "websocket", "noise", "yamux", "gossipsub"] }
+async-trait = "0.1"
 log = "0.4"
 env_logger = "0.10"
+
+[dev-dependencies]
+tokio-test = "0.4"
