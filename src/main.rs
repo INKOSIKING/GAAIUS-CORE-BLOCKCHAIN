@@ -1,24 +1,37 @@
 mod blockchain;
-mod transactions;
 mod network;
-mod wallet;
-mod cli;
+mod transactions;
+mod vm; // Including the vm module for SmartContract usage
 
-use std::sync::{Arc, Mutex};
 use blockchain::Blockchain;
-use network::start_p2p_network;
-use cli::start_cli;
+use network::Network;
+use transactions::Transaction;
+use vm::{SmartContract, VMType}; // Import the SmartContract and VMType
 
 fn main() {
-    // Initialize blockchain in a thread-safe shared pointer
-    let blockchain = Arc::new(Mutex::new(Blockchain::new()));
+    // Example usage of SmartContract deployment logic
+    let contract = SmartContract {
+        vm_type: VMType::WASM,
+        bytecode: vec![0x00, 0x61, 0x73, 0x6D],
+        gas_limit: 500_000,
+        sender: "gaaius_sender".to_string(),
+        contract_address: "gaaius_contract_001".to_string(),
+    };
 
-    // Start the P2P network in a background thread
-    let blockchain_clone = Arc::clone(&blockchain);
-    std::thread::spawn(move || {
-        start_p2p_network(blockchain_clone);
-    });
+    match contract.deploy() {
+        Ok(msg) => println!("Contract deployed successfully: {}", msg),
+        Err(err) => eprintln!("Deployment failed: {}", err),
+    }
 
-    // Start the CLI
-    start_cli(blockchain);
+    // Blockchain initialization and usage
+    let blockchain = Blockchain::new();
+    blockchain.start();
+
+    // Network logic
+    let network = Network::new("localhost:8080");
+    network.connect();
+
+    // Example transaction usage
+    let transaction = Transaction::new("gaaius_sender", "gaaius_receiver", 100);
+    transaction.process();
 }
