@@ -12,26 +12,25 @@ use crate::blockchain::Blockchain;
 use crate::wallet::Wallet;
 use clap::Parser;
 use std::sync::{Arc, Mutex};
-use tokio::task;
+use tokio::{signal, task};
 
 #[tokio::main]
 async fn main() {
-    // Load CLI args
     let cli = CliCommand::parse();
 
-    // Shared blockchain state
+    // Shared blockchain and wallet states
     let blockchain = Arc::new(Mutex::new(Blockchain::new()));
     let wallet = Arc::new(Mutex::new(Wallet::new()));
 
-    // Start API server in background
-    let blockchain_api = Arc::clone(&blockchain);
-    let wallet_api = Arc::clone(&wallet);
+    // Start REST API in the background
+    let api_blockchain = Arc::clone(&blockchain);
+    let api_wallet = Arc::clone(&wallet);
 
-    task::spawn(async move {
-        api::run_server(blockchain_api, wallet_api).await;
+    let api_handle = task::spawn(async move {
+        api::run_server(api_blockchain, api_wallet).await;
     });
 
-    // Handle CLI commands
+    // Handle CLI commands (async-safe)
     match cli.command {
         Some(cli::Commands::CreateWallet) => {
             let new_wallet = wallet.lock().unwrap().create_wallet();
@@ -51,12 +50,23 @@ async fn main() {
             let mut bc = blockchain.lock().unwrap();
             if let Some(tx) = bc.create_transaction(&from, &to, amount) {
                 bc.add_transaction(tx);
-                println!("Transaction from {} to {} for {} sent.", from, to, amount);
+                println!("Transaction sent: {} => {} [{}]", from, to, amount);
             } else {
-                println!("Failed to create transaction. Check balances.");
+                println!("Transaction failed. Check sender balance or inputs.");
             }
         }
         None => {
-            println!("GAAIUS CORE v4 node is running.");
-            println!("API available at http://localhost:3030");
-            println!("Use CLI flags to interact (e.g., `
+            println!("\nGAAIUS CORE Node v4 is running.");
+            println!("Explorer:   http://localhost:3030/explorer");
+            println!("API:        http://localhost:3030/api");
+            println!("Press Ctrl+C to shut down the node.\n");
+
+            // Wait for shutdown signal (graceful exit)
+            signal::ctrl_c().await.unwrap();
+            println!("\nShutting down GAAIUS CORE node...");
+        }
+    }
+
+    // Optional: wait for background API to cleanly shut down
+    let _ = api_handle.await;
+}
