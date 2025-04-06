@@ -1,20 +1,20 @@
-use actix_web::{App, HttpServer, web};
-use std::sync::{Arc, Mutex};
-use crate::blockchain::Blockchain;
-use crate::explorer::{get_blocks, get_block_by_hash, get_wallet_info, get_transaction_by_hash};
+// src/api.rs
 
-pub async fn run_api_server(blockchain: Arc<Mutex<Blockchain>>) -> std::io::Result<()> {
-    println!("Starting GAAIUS API Explorer at http://localhost:8000");
+use actix_web::{App, HttpServer};
+use crate::blockchain::Blockchain;
+use crate::explorer::explorer;
+use crate::cli::health_check;
+
+pub async fn run_server(blockchain: Blockchain) -> std::io::Result<()> {
+    let data = actix_web::web::Data::new(blockchain);
 
     HttpServer::new(move || {
         App::new()
-            .app_data(web::Data::new(blockchain.clone()))
-            .service(get_blocks)
-            .service(get_block_by_hash)
-            .service(get_wallet_info)
-            .service(get_transaction_by_hash)
+            .app_data(data.clone())
+            .service(health_check)
+            .service(explorer)
     })
-    .bind(("127.0.0.1", 8000))?
+    .bind("127.0.0.1:8080")?
     .run()
     .await
 }
