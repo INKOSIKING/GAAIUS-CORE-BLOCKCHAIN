@@ -1,75 +1,70 @@
-use actix_web::{get, web, Responder, HttpResponse};
-use serde::Serialize;
-use std::sync::{Arc, Mutex};
-use crate::blockchain::{Blockchain, Block};
+// src/explorer.rs
+
+use actix_web::{get, web, HttpResponse, Responder};
+use serde::{Deserialize, Serialize};
+
+use crate::blockchain::{Blockchain, Transaction};
 
 #[derive(Serialize)]
-pub struct WalletInfo {
-    pub address: String,
-    pub balance: u64,
-    pub tx_count: usize,
+struct WalletView {
+    address: String,
+    balance: u64,
+    transactions: Vec<Transaction>,
 }
 
-#[get("/blocks")]
-pub async fn get_blocks(data: web::Data<Arc<Mutex<Blockchain>>>) -> impl Responder {
-    let blockchain = data.lock().unwrap();
-    HttpResponse::Ok().json(&blockchain.chain)
+#[derive(Deserialize)]
+pub struct QueryParams {
+    address: Option<String>,
+    tx_id: Option<String>,
+    page: Option<usize>,
+    limit: Option<usize>,
 }
 
-#[get("/block/{hash}")]
-pub async fn get_block_by_hash(
-    path: web::Path<String>,
-    data: web::Data<Arc<Mutex<Blockchain>>>,
+#[get("/explorer")]
+pub async fn explorer(
+    data: web::Data<Blockchain>,
+    query: web::Query<QueryParams>,
 ) -> impl Responder {
-    let hash = path.into_inner();
-    let blockchain = data.lock().unwrap();
-    if let Some(block) = blockchain.chain.iter().find(|b| b.hash == hash) {
-        HttpResponse::Ok().json(block)
-    } else {
-        HttpResponse::NotFound().body("Block not found")
+    let blockchain = data.get_ref();
+    let mut results = vec![];
+
+    if let Some(addr) = &query.address {
+        let txs: Vec<Transaction> = blockchain
+            .get_all_transactions()
+            .into_iter()
+            .filter(|tx| &tx.from == addr || &tx.to == addr)
+            .collect();
+
+        let balance = blockchain.get_balance(addr);
+
+        let wallet = WalletView {
+            address: addr.clone(),
+            balance,
+            transactions: txs,
+        };
+
+        return HttpResponse::Ok().json(wallet);
     }
-}
 
-#[get("/wallet/{address}")]
-pub async fn get_wallet_info(
-    path: web::Path<String>,
-    data: web::Data<Arc<Mutex<Blockchain>>>,
-) -> impl Responder {
-    let address = path.into_inner();
-    let blockchain = data.lock().unwrap();
-
-    let balance = blockchain.get_balance(&address);
-    let tx_count = blockchain
-        .chain
-        .iter()
-        .flat_map(|b| b.transactions.iter())
-        .filter(|tx| tx.sender == address || tx.receiver == address)
-        .count();
-
-    let info = WalletInfo {
-        address,
-        balance,
-        tx_count,
-    };
-
-    HttpResponse::Ok().json(info)
-}
-
-#[get("/transaction/{hash}")]
-pub async fn get_transaction_by_hash(
-    path: web::Path<String>,
-    data: web::Data<Arc<Mutex<Blockchain>>>,
-) -> impl Responder {
-    let hash = path.into_inner();
-    let blockchain = data.lock().unwrap();
-
-    for block in &blockchain.chain {
-        for tx in &block.transactions {
-            if tx.hash == hash {
-                return HttpResponse::Ok().json(tx);
-            }
+    if let Some(tx_id) = &query.tx_id {
+        if let Some(tx) = blockchain.get_transaction_by_id(tx_id) {
+            return HttpResponse::Ok().json(tx);
+        } else {
+            return HttpResponse::NotFound().body("Transaction not found");
         }
     }
 
-    HttpResponse::NotFound().body("Transaction not found")
+    // Default case: return paginated transaction list
+    let page = query.page.unwrap_or(1);
+    let limit = query.limit.unwrap_or(10);
+    let start = (page - 1) * limit;
+
+    results = blockchain
+        .get_all_transactions()
+        .into_iter()
+        .skip(start)
+        .take(limit)
+        .collect();
+
+    HttpResponse::Ok().json(results)
 }
