@@ -1,14 +1,10 @@
 [package]
 name = "gaaius_core"
-version = "0.1.0"
+version = "0.4.0"
 edition = "2021"
-authors = ["Your Name <you@example.com>"]
-description = "GAAIUS CORE V4 - Secure, scalable blockchain core node with full CLI, P2P, and wallet logic."
 
 [dependencies]
+tokio = { version = "1", features = ["full"] }
+warp = "0.3"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-sha2 = "0.10"
-rand = "0.8"
-chrono = "0.4"
-clap = { version = "4.0", features = ["derive"] }
