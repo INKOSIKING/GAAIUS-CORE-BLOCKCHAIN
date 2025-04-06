@@ -1,84 +1,38 @@
-use std::io::{self, Write};
+use std::env;
+use std::io;
 use std::sync::{Arc, Mutex};
 
 use crate::blockchain::Blockchain;
-use crate::network::{Node, NetworkMessage};
 use crate::transactions::Transaction;
+use crate::network::{start_p2p_network, broadcast_transaction};
+use crate::wallet::Wallet;
 
-pub fn start_cli(blockchain: Arc<Mutex<Blockchain>>, node: Arc<Node>) {
+pub fn start_cli(blockchain: Arc<Mutex<Blockchain>>) {
+    println!("=== GAAIUS CORE v4 CLI ===");
+    println!("Available commands:");
+    println!(" - send <from> <to> <amount>");
+    println!(" - balance <address>");
+    println!(" - chain");
+    println!(" - mine");
+    println!(" - exit");
+
+    let wallet = Wallet::new(); // Optional: Replace with actual loaded wallet
+
     loop {
-        print!("\nGAAIUS CORE > ");
-        io::stdout().flush().unwrap();
-
         let mut input = String::new();
+        print!("> ");
+        let _ = io::Write::flush(&mut io::stdout());
         io::stdin().read_line(&mut input).unwrap();
 
-        let parts: Vec<&str> = input.trim().split_whitespace().collect();
-
-        if parts.is_empty() {
+        let args: Vec<&str> = input.trim().split_whitespace().collect();
+        if args.is_empty() {
             continue;
         }
 
-        match parts[0] {
-            "mine" => {
-                let mut chain = blockchain.lock().unwrap();
-                chain.mine_pending_transactions("gaaius-system".to_string());
-                println!("Block mined!");
-                let block = chain.chain.last().unwrap().clone();
-                node.broadcast(&NetworkMessage::NewBlock(block));
-            }
-            "chain" => {
-                let chain = blockchain.lock().unwrap();
-                for block in &chain.chain {
-                    println!("{:#?}", block);
-                }
-            }
-            "tx" => {
-                if parts.len() < 4 {
-                    println!("Usage: tx <sender> <recipient> <amount>");
-                    continue;
-                }
+        match args[0] {
+            "send" if args.len() == 4 => {
+                let from = args[1];
+                let to = args[2];
+                let amount: u64 = args[3].parse().unwrap_or(0);
 
-                let tx = Transaction {
-                    sender: parts[1].to_string(),
-                    recipient: parts[2].to_string(),
-                    amount: parts[3].parse().unwrap_or(0),
-                };
-
-                blockchain.lock().unwrap().add_transaction(tx.clone());
-                node.broadcast(&NetworkMessage::NewTransaction(tx));
-                println!("Transaction added.");
-            }
-            "peers" => {
-                let peers = node.peers.lock().unwrap();
-                println!("Connected peers:");
-                for peer in peers.iter() {
-                    println!("- {}", peer);
-                }
-            }
-            "connect" => {
-                if parts.len() < 2 {
-                    println!("Usage: connect <ip:port>");
-                    continue;
-                }
-                node.connect_to_peer(parts[1]);
-                println!("Connected to peer {}", parts[1]);
-            }
-            "start" => {
-                if parts.len() < 2 {
-                    println!("Usage: start <ip:port>");
-                    continue;
-                }
-
-                let node_clone = Arc::clone(&node);
-                std::thread::spawn(move || {
-                    node_clone.start(parts[1]);
-                });
-
-                println!("Node started on {}", parts[1]);
-            }
-            "exit" => break,
-            _ => println!("Commands: mine, tx, chain, connect, start, peers, exit"),
-        }
-    }
-}
+                let tx = Transaction::new(from.to_string(), to.to_string(), amount);
