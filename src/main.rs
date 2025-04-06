@@ -1,15 +1,16 @@
 mod blockchain;
 mod network;
 mod transactions;
-mod vm; // Including the vm module for SmartContract usage
+mod vm;
+mod api;
 
 use blockchain::Blockchain;
 use network::Network;
 use transactions::Transaction;
-use vm::{SmartContract, VMType}; // Import the SmartContract and VMType
+use vm::{SmartContract, VMType};
 
-fn main() {
-    // Example usage of SmartContract deployment logic
+#[tokio::main]
+async fn main() {
     let contract = SmartContract {
         vm_type: VMType::WASM,
         bytecode: vec![0x00, 0x61, 0x73, 0x6D],
@@ -23,15 +24,15 @@ fn main() {
         Err(err) => eprintln!("Deployment failed: {}", err),
     }
 
-    // Blockchain initialization and usage
     let blockchain = Blockchain::new();
     blockchain.start();
 
-    // Network logic
     let network = Network::new("localhost:8080");
     network.connect();
 
-    // Example transaction usage
     let transaction = Transaction::new("gaaius_sender", "gaaius_receiver", 100);
     transaction.process();
+
+    // Start the REST API
+    api::start_api(blockchain).await;
 }
