@@ -1,46 +1,42 @@
-use crate::blockchain::{Blockchain, Block};
-use crate::transactions::Transaction;
+use actix_web::{web, App, HttpServer, Responder, HttpResponse};
+use std::sync::{Arc, Mutex};
+use crate::blockchain::Blockchain;
 
-pub struct Explorer<'a> {
-    chain: &'a Blockchain,
+async fn explorer_ui(data: web::Data<Arc<Mutex<Blockchain>>>) -> impl Responder {
+    let blockchain = data.lock().unwrap();
+    let mut html = String::new();
+
+    html.push_str("<html><head><title>GAAIUS Explorer</title></head><body>");
+    html.push_str("<h1>GAAIUS Blockchain Explorer</h1><ul>");
+
+    for block in &blockchain.chain {
+        html.push_str(&format!(
+            "<li><strong>Block #{}</strong><br>\
+             Timestamp: {}<br>\
+             Hash: {}<br>\
+             Previous Hash: {}<br>\
+             Transactions: {}<hr></li>",
+            block.index,
+            block.timestamp,
+            block.hash,
+            block.previous_hash,
+            block.transactions.len()
+        ));
+    }
+
+    html.push_str("</ul></body></html>");
+    HttpResponse::Ok().body(html)
 }
 
-impl<'a> Explorer<'a> {
-    pub fn new(chain: &'a Blockchain) -> Self {
-        Explorer { chain }
-    }
+pub async fn start_explorer(blockchain: Arc<Mutex<Blockchain>>) -> std::io::Result<()> {
+    println!("[Explorer] Running at http://localhost:8081");
 
-    pub fn latest_block(&self) -> Option<&Block> {
-        self.chain.get_chain().last()
-    }
-
-    pub fn all_blocks(&self) -> Vec<&Block> {
-        self.chain.get_chain().iter().collect()
-    }
-
-    pub fn all_transactions(&self) -> Vec<&Transaction> {
-        self.chain.get_chain().iter()
-            .flat_map(|block| block.transactions.iter())
-            .collect()
-    }
-
-    pub fn find_transactions_by_address(&self, address: &str) -> Vec<&Transaction> {
-        self.all_transactions()
-            .into_iter()
-            .filter(|tx| tx.sender == address || tx.recipient == address)
-            .collect()
-    }
-
-    pub fn print_summary(&self) {
-        println!("--- GAAIUS EXPLORER ---");
-        println!("Total Blocks: {}", self.chain.get_chain().len());
-        println!("Total Transactions: {}", self.all_transactions().len());
-
-        if let Some(latest) = self.latest_block() {
-            println!("Latest Block Hash: {}", latest.hash);
-            println!("Transactions in Latest Block: {}", latest.transactions.len());
-        }
-
-        println!("------------------------");
-    }
+    HttpServer::new(move || {
+        App::new()
+            .app_data(web::Data::new(blockchain.clone()))
+            .route("/", web::get().to(explorer_ui))
+    })
+    .bind("127.0.0.1:8081")?
+    .run()
+    .await
 }
