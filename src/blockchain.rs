@@ -1,131 +1,111 @@
-use crate::transactions::{Transaction, TransactionType};
-use serde::{Serialize, Deserialize};
-use sha2::{Sha256, Digest};
-use std::collections::{HashMap, HashSet};
+use chrono::Utc;
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use std::collections::HashMap;
+
+use crate::transactions::{Transaction, calculate_hash, verify_signature};
+use crate::wallet::Wallet;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Block {
     pub index: u64,
-    pub timestamp: u64,
+    pub timestamp: i64,
     pub transactions: Vec<Transaction>,
     pub previous_hash: String,
-    pub nonce: u64,
     pub hash: String,
+    pub validator: String,
 }
 
 #[derive(Debug)]
 pub struct Blockchain {
     pub chain: Vec<Block>,
-    pub pending_transactions: Vec<Transaction>,
-    pub balances: HashMap<String, u64>,
-    pub contracts: HashMap<String, String>, // address -> code
-    pub contract_state: HashMap<String, String>, // simple state key-value
-    pub minted_tokens: HashSet<String>, // unique minted tokens
+    pub transaction_pool: Vec<Transaction>,
+    pub balances: HashMap<String, f64>,
 }
 
 impl Blockchain {
     pub fn new() -> Self {
         let mut blockchain = Blockchain {
             chain: vec![],
-            pending_transactions: vec![],
+            transaction_pool: vec![],
             balances: HashMap::new(),
-            contracts: HashMap::new(),
-            contract_state: HashMap::new(),
-            minted_tokens: HashSet::new(),
         };
-        blockchain.create_genesis_block();
+        let genesis = blockchain.create_genesis_block();
+        blockchain.chain.push(genesis);
         blockchain
     }
 
-    fn create_genesis_block(&mut self) {
-        let genesis = Block {
+    fn create_genesis_block(&self) -> Block {
+        Block {
             index: 0,
-            timestamp: 0,
+            timestamp: Utc::now().timestamp(),
             transactions: vec![],
-            previous_hash: "0".repeat(64),
-            nonce: 0,
-            hash: "genesis".to_string(),
-        };
-        self.chain.push(genesis);
-    }
-
-    pub fn add_transaction(&mut self, tx: Transaction) {
-        if tx.is_valid() {
-            self.pending_transactions.push(tx);
+            previous_hash: String::from("0"),
+            hash: String::from("GENESIS_HASH"),
+            validator: String::from("GENESIS_VALIDATOR"),
         }
     }
 
-    pub fn mine_block(&mut self, miner: &str) {
-        let last_block = self.chain.last().unwrap();
-        let mut new_block = Block {
-            index: last_block.index + 1,
-            timestamp: chrono::Utc::now().timestamp() as u64,
-            transactions: self.pending_transactions.clone(),
-            previous_hash: last_block.hash.clone(),
-            nonce: 0,
-            hash: String::new(),
-        };
-
-        new_block.hash = self.calculate_hash(&new_block);
-        self.apply_transactions(&new_block.transactions);
-        self.chain.push(new_block);
-        self.pending_transactions.clear();
-        *self.balances.entry(miner.to_string()).or_insert(0) += 100;
+    pub fn add_transaction(&mut self, tx: Transaction) -> bool {
+        if verify_signature(&tx) && self.get_balance(&tx.sender) >= tx.amount {
+            self.transaction_pool.push(tx);
+            true
+        } else {
+            false
+        }
     }
 
-    fn calculate_hash(&self, block: &Block) -> String {
-        let mut hasher = Sha256::new();
+    pub fn mine_block(&mut self, validator_wallet: &Wallet) {
+        let transactions = self.transaction_pool.clone();
+        let previous_hash = self.chain.last().unwrap().hash.clone();
+        let index = self.chain.len() as u64;
+        let timestamp = Utc::now().timestamp();
+
+        let mut block = Block {
+            index,
+            timestamp,
+            transactions,
+            previous_hash,
+            hash: String::new(),
+            validator: validator_wallet.address.clone(),
+        };
+
+        block.hash = Self::calculate_block_hash(&block);
+        self.apply_transactions(&block.transactions, &validator_wallet.address);
+        self.chain.push(block);
+        self.transaction_pool.clear();
+    }
+
+    fn apply_transactions(&mut self, transactions: &[Transaction], validator: &str) {
+        for tx in transactions {
+            *self.balances.entry(tx.sender.clone()).or_insert(0.0) -= tx.amount;
+            *self.balances.entry(tx.recipient.clone()).or_insert(0.0) += tx.amount;
+        }
+
+        // Validator reward
+        let reward = 5.0; // Adjustable based on consensus
+        *self.balances.entry(validator.to_string()).or_insert(0.0) += reward;
+    }
+
+    pub fn get_balance(&self, address: &str) -> f64 {
+        *self.balances.get(address).unwrap_or(&0.0)
+    }
+
+    pub fn get_chain(&self) -> &Vec<Block> {
+        &self.chain
+    }
+
+    pub fn calculate_block_hash(block: &Block) -> String {
         let data = format!(
             "{}{}{:?}{}{}",
             block.index,
             block.timestamp,
             block.transactions,
             block.previous_hash,
-            block.nonce
+            block.validator
         );
-        hasher.update(data.as_bytes());
+        let mut hasher = Sha256::new();
+        hasher.update(data);
         hex::encode(hasher.finalize())
-    }
-
-    fn apply_transactions(&mut self, txs: &[Transaction]) {
-        for tx in txs {
-            match tx.tx_type {
-                TransactionType::Transfer => {
-                    if self.balances.get(&tx.from).unwrap_or(&0) >= &tx.amount {
-                        *self.balances.entry(tx.from.clone()).or_insert(0) -= tx.amount;
-                        *self.balances.entry(tx.to.clone()).or_insert(0) += tx.amount;
-                    }
-                }
-                TransactionType::Stake => {
-                    *self.balances.entry(tx.from.clone()).or_insert(0) -= tx.amount;
-                    // placeholder for staking logic
-                }
-                TransactionType::DeployContract => {
-                    self.contracts.insert(tx.to.clone(), tx.payload.clone().unwrap_or_default());
-                }
-                TransactionType::CallContract => {
-                    let contract_output = format!("Executed contract {} by {}", tx.to, tx.from);
-                    self.contract_state.insert(tx.to.clone(), contract_output);
-                }
-                TransactionType::MintToken => {
-                    if !self.minted_tokens.contains(&tx.to) {
-                        self.minted_tokens.insert(tx.to.clone());
-                        *self.balances.entry(tx.to.clone()).or_insert(0) += tx.amount;
-                    }
-                }
-            }
-        }
-    }
-
-    pub fn get_balance(&self, address: &str) -> u64 {
-        *self.balances.get(address).unwrap_or(&0)
-    }
-
-    pub fn get_contract(&self, address: &str) -> Option<&String> {
-        self.contracts.get(address)
-    }
-
-    pub fn get_state(&self, address: &str) -> Option<&String> {
-        self.contract_state.get(address)
     }
 }
