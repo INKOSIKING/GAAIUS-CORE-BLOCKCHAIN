@@ -1,6 +1,5 @@
 use actix_web::{web, App, HttpResponse, HttpServer, Responder};
 use serde::{Deserialize, Serialize};
-
 use crate::blockchain::Blockchain;
 use crate::transactions::Transaction;
 
@@ -35,15 +34,28 @@ async fn add_transaction(tx: web::Json<TxInput>, data: web::Data<Blockchain>) ->
     HttpResponse::Ok().body("Transaction added.")
 }
 
+async fn mine_block(data: web::Data<Blockchain>) -> impl Responder {
+    data.mine_pending_transactions("gaaius-system-wallet".into());
+    HttpResponse::Ok().body("Block mined successfully.")
+}
+
+async fn get_balance(path: web::Path<String>, data: web::Data<Blockchain>) -> impl Responder {
+    let address = path.into_inner();
+    let balance = data.get_balance(&address);
+    HttpResponse::Ok().body(format!("Balance for {}: {}", address, balance))
+}
+
 pub async fn run_api(blockchain: Blockchain) -> std::io::Result<()> {
     let data = web::Data::new(blockchain);
-    println!("[API] Starting REST API on http://127.0.0.1:8080");
+    println!("[API] Running GAAIUS REST API at http://127.0.0.1:8080");
 
     HttpServer::new(move || {
         App::new()
             .app_data(data.clone())
             .route("/chain", web::get().to(get_chain))
             .route("/tx", web::post().to(add_transaction))
+            .route("/mine", web::post().to(mine_block))
+            .route("/balance/{address}", web::get().to(get_balance))
     })
     .bind("127.0.0.1:8080")?
     .run()
